@@ -1,32 +1,37 @@
-import os
 import time
+import os
 
-def collect_logs():
-    logs = os.popen("docker logs self_healing_app --tail 20").read()
-    return logs
+LOG_FILE = "/app/app.log"
 
-def analyze_logs(logs):
-    logs_lower = logs.lower()
+def wait_for_log_file():
+    print("Waiting for log file...")
+    while not os.path.exists(LOG_FILE):
+        time.sleep(1)
 
-    if "error" in logs_lower:
-        return "Error detected in logs"
-    elif "exit" in logs_lower:
-        return "Application crash detected"
-    elif "exception" in logs_lower:
-        return "Exception found in logs"
-    return "System normal"
+def tail_logs():
+    print("Real-time File Log Analyzer started...")
 
-def main():
-    print("Log Analyzer started...")
+    with open(LOG_FILE, "r") as f:
+        f.seek(0, 2)  # move to end of file
 
-    while True:
-        logs = collect_logs()
-        result = analyze_logs(logs)
+        while True:
+            line = f.readline()
 
-        print("Log Analysis:", result)
-        print("-" * 50)
+            if not line:
+                time.sleep(1)
+                continue
 
-        time.sleep(10)
+            line_lower = line.lower()
+
+            if "error" in line_lower:
+                print("ALERT: Application crash detected")
+
+            elif "warning" in line_lower:
+                print("WARNING detected")
+
+            else:
+                print("LOG:", line.strip())
 
 if __name__ == "__main__":
-    main()
+    wait_for_log_file()
+    tail_logs()

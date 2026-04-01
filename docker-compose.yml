@@ -6,7 +6,9 @@ services:
     container_name: self_healing_app
     ports:
       - "5000:5000"
-    restart: "no"   
+    restart: "no"  
+    volumes:
+      - ./logs:/app 
 
   prometheus:
     image: prom/prometheus
@@ -34,9 +36,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock   
 
   log_analyzer:
-    build:
-      context: ./automation
-      dockerfile: dockerfile.log
-    container_name: log_analyzer
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+   build:
+    context: ./automation
+    dockerfile: dockerfile.log
+   container_name: log_analyzer
+   command: ["python", "log_analyzer.py"]
+   volumes:
+    - ./logs:/app
+    - /var/run/docker.sock:/var/run/docker.sock
