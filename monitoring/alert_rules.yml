@@ -12,7 +12,7 @@ groups:
 
       - alert: AppDown
         expr: up == 0
-        for: 5s
+        for: 15s
         labels:
           severity: critical
         annotations:

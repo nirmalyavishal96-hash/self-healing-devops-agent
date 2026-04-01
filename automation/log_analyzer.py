@@ -1,37 +1,35 @@
 import time
 import os
 
-LOG_FILE = "/app/app.log"
+LOG_FILE = "/logs/app.log"
 
-def wait_for_log_file():
-    print("Waiting for log file...")
+def follow():
+    print("Real-time File Log Analyzer started...", flush=True)
+
     while not os.path.exists(LOG_FILE):
+        print("Waiting for log file...", flush=True)
         time.sleep(1)
 
-def tail_logs():
-    print("Real-time File Log Analyzer started...")
-
     with open(LOG_FILE, "r") as f:
-        f.seek(0, 2)  # move to end of file
+        f.seek(0, os.SEEK_END)
 
         while True:
             line = f.readline()
 
             if not line:
-                time.sleep(1)
+                time.sleep(0.5)
                 continue
 
             line_lower = line.lower()
 
             if "error" in line_lower:
-                print("ALERT: Application crash detected")
+                print("ALERT: Application crash detected", flush=True)
 
             elif "warning" in line_lower:
-                print("WARNING detected")
+                print("WARNING detected", flush=True)
 
             else:
-                print("LOG:", line.strip())
+                print("LOG:", line.strip(), flush=True)
 
 if __name__ == "__main__":
-    wait_for_log_file()
-    tail_logs()
+    follow()

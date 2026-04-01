@@ -6,9 +6,11 @@ services:
     container_name: self_healing_app
     ports:
       - "5000:5000"
-    restart: "no"  
+    restart: "no"
     volumes:
-      - ./logs:/app 
+      - ./logs:/logs 
+    environment:
+      - PYTHONUNBUFFERED=1
 
   prometheus:
     image: prom/prometheus
@@ -33,14 +35,26 @@ services:
     ports:
       - "5001:5001"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock   
+      - /var/run/docker.sock:/var/run/docker.sock 
+    environment:
+      - PYTHONUNBUFFERED=1  
 
   log_analyzer:
    build:
-    context: ./automation
-    dockerfile: dockerfile.log
+     context: ./automation
+     dockerfile: dockerfile.log
    container_name: log_analyzer
    command: ["python", "log_analyzer.py"]
    volumes:
-    - ./logs:/app
-    - /var/run/docker.sock:/var/run/docker.sock
+     - ./logs:/logs
+   environment:
+     - PYTHONUNBUFFERED=1
+
+  ai_agent:
+    build: ./automation
+    container_name: ai_agent
+    command: ["python", "ai_agent.py"]
+    volumes:
+      - ./logs:/logs
+    environment:
+      - PYTHONUNBUFFERED=1  

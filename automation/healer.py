@@ -14,6 +14,9 @@ handled_alerts = set()
 alert_last_handled = {}
 COOLDOWN_SECONDS = 30
 
+# NEW: restart delay (seconds)
+RESTART_DELAY = 20
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -40,12 +43,11 @@ def webhook():
 
         current_time = time.time()
 
-        # LIVENESS FIX: If app is DOWN → always try recovery
+        # LIVENESS FIX
         if alert_name == "AppDown":
             if not is_container_running("self_healing_app"):
                 print("App is DOWN → forcing recovery (bypass cooldown)")
             else:
-                # Apply cooldown only if app is already running
                 if alert_key in alert_last_handled:
                     last_time = alert_last_handled[alert_key]
                     if current_time - last_time < COOLDOWN_SECONDS:
@@ -90,8 +92,13 @@ def handle_app_down():
 
     if failure_count[service] <= 3:
         if not is_container_running(service):
+
+            print(f"Waiting {RESTART_DELAY} seconds before restart...")
+            time.sleep(RESTART_DELAY)
+
             print("Action: Restarting container...")
             os.system(f"docker start {service}")
+
         else:
             print("Container already running, no action needed")
     else:
