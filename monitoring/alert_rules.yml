@@ -1,0 +1,19 @@
+groups:
+  - name: self_healing_rules
+    rules:
+
+      - alert: HighRequestRate
+        expr: rate(app_requests_total[10s]) > 1
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request rate detected"
+
+      - alert: AppDown
+        expr: up == 0
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Application is down"

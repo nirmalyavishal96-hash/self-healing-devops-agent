@@ -1,0 +1,12 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY healer.py .
+
+# Install docker CLI
+RUN apt-get update && \
+    apt-get install -y docker.io && \
+    pip install flask
+
+CMD ["python", "healer.py"]

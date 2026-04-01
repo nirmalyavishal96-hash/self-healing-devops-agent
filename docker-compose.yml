@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  app:
+    build: ./app
+    container_name: self_healing_app
+    ports:
+      - "5000:5000"
+    restart: "no"   
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alert_rules.yml:/etc/prometheus/alert_rules.yml
+    ports:
+      - "9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager
+    container_name: alertmanager
+    volumes:
+      - ./alerting/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+  
+  healer:
+    build: ./automation
+    container_name: healer
+    ports:
+      - "5001:5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   
+
+  log_analyzer:
+    build:
+      context: ./automation
+      dockerfile: dockerfile.log
+    container_name: log_analyzer
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
