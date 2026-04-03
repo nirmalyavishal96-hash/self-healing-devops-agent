@@ -9,3 +9,4 @@ receivers:
     webhook_configs:
       - url: "http://healer:5001/webhook"
         send_resolved: true
+        timeout: 10s

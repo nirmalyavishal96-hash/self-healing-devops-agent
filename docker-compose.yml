@@ -1,4 +1,4 @@
-version: "3.8"
+
 
 services:
   app:
@@ -32,6 +32,7 @@ services:
   healer:
     build: ./automation
     container_name: healer
+    command: ["python", "healer.py"]  
     ports:
       - "5001:5001"
     volumes:
@@ -40,15 +41,15 @@ services:
       - PYTHONUNBUFFERED=1  
 
   log_analyzer:
-   build:
-     context: ./automation
-     dockerfile: dockerfile.log
-   container_name: log_analyzer
-   command: ["python", "log_analyzer.py"]
-   volumes:
-     - ./logs:/logs
-   environment:
-     - PYTHONUNBUFFERED=1
+    build:
+      context: ./automation
+      dockerfile: dockerfile.log
+    container_name: log_analyzer
+    command: ["python", "log_analyzer.py"]
+    volumes:
+      - ./logs:/logs
+    environment:
+      - PYTHONUNBUFFERED=1
 
   ai_agent:
     build: ./automation
@@ -56,5 +57,21 @@ services:
     command: ["python", "ai_agent.py"]
     volumes:
       - ./logs:/logs
+      - ./shared:/shared   
     environment:
       - PYTHONUNBUFFERED=1  
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
+
+  anomaly_detector:
+    build: ./automation   
+    container_name: anomaly_detector
+    command: ["python", "anomaly_detector.py"]
+    depends_on:
+      - prometheus
+    volumes:
+      - ./logs:/logs
+      - ./shared:/shared
+      - ./automation:/app
+    environment:
+      - PYTHONUNBUFFERED=1

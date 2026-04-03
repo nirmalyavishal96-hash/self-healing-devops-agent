@@ -2,12 +2,11 @@ from flask import Flask
 import time
 from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
 import os
+import logging
 
 app = Flask(__name__)
 
 LOG_FILE = "/logs/app.log"
-
-# Ensure log directory exists
 os.makedirs('/logs', exist_ok=True)
 
 def write_log(message):
@@ -33,11 +32,19 @@ def load():
     write_log("WARNING CPU spike simulation completed")
     return "CPU spike simulated!"
 
+logging.basicConfig(
+    filename='/logs/app.log',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
+
 @app.route("/fail")
 def fail():
-    write_log("ERROR Application crash triggered")
-    time.sleep(1)
-    os._exit(1)
+    try:
+        x = 1 / 0
+    except Exception as e:
+        logging.error(f"Application crash: {str(e)}", exc_info=True)
+        os._exit(1)  # FIXED
 
 @app.route("/metrics")
 def metrics():
