@@ -1,19 +1,18 @@
 groups:
-  - name: self_healing_rules
+  - name: self_healing_alerts
     rules:
 
       - alert: HighRequestRate
-        expr: rate(app_requests_total[10s]) > 1
-        for: 10s
+        expr: avg_over_time(rate(app_requests_total[1m])[3m:]) > 300
+        for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "High request rate detected"
+          summary: "Sustained high traffic detected"
+          description: "Traffic is consistently high for more than 2 minutes"
 
       - alert: AppDown
-        expr: up == 0
-        for: 15s
+        expr: up{job="self_healing_app"} == 0
+        for: 30s
         labels:
           severity: critical
-        annotations:
-          summary: "Application is down"

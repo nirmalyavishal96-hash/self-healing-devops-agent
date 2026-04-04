@@ -1,14 +1,15 @@
-FROM python:3.10-slim
+FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy requirements 
-COPY requirements.txt .
+# Install curl + docker CLI (IMPORTANT FIX)
+RUN apt-get update && apt-get install -y \
+    curl \
+    docker.io \
+    && apt-get clean
 
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy all automation code
 COPY . .
 
+RUN pip install flask requests
 
-CMD ["python", "ai_agent.py"]
+CMD ["python", "healer.py"]

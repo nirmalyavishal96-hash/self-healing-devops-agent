@@ -1,4 +1,3 @@
-
 import time
 import requests
 import os
@@ -55,7 +54,7 @@ def analyze_with_llm(prompt):
                 "stream": False,
                 "options": {"temperature": 0.1}
             },
-            timeout=5   # reduced timeout for faster fallback
+            timeout=30  # FIXED timeout
         )
         return res.json().get("response", "")
     except Exception as e:
@@ -69,7 +68,6 @@ def safe_llm_call(prompt):
     if "Root Cause:" in out:
         return out
 
-    #  fallback
     return """Root Cause: Traffic spike detected
 Fix: Scale or rate limit requests
 Severity: MEDIUM"""
@@ -95,6 +93,27 @@ def clean_output(text):
     return result
 
 
+def call_healer(action):
+    try:
+        payload = {
+            "alerts": [
+                {
+                    "labels": {
+                        "alertname": action,
+                        "instance": "ai-agent"
+                    },
+                    "status": "firing"
+                }
+            ]
+        }
+
+        requests.post("http://healer:5001/webhook", json=payload, timeout=10)
+        print(f"Sent action to healer: {action}")
+
+    except Exception as e:
+        print("Healer call failed:", e)
+
+
 if __name__ == "__main__":
     print("AI Agent started")
     wait_for_ollama()
@@ -112,7 +131,7 @@ if __name__ == "__main__":
 
             trigger_ts = data.get("timestamp", 0)
 
-            if last_trigger_timestamp is not None and str(trigger_ts) == str(last_trigger_timestamp):
+            if last_trigger_timestamp == trigger_ts:
                 time.sleep(1)
                 continue
 
@@ -150,32 +169,30 @@ Severity:
             raw = safe_llm_call(prompt)
             parsed = clean_output(raw)
 
-            # DECISION ENGINE
-            score = 0
+            print(f"DEBUG → Confidence={confidence}, Z-score={z_score}")
 
-            if confidence >= 0.8:
-                score += 3
-            elif confidence >= 0.5:
-                score += 2
-            elif confidence > 0:
-                score += 1
-
-            print(f"DEBUG → Confidence={confidence}, Score={score}")
-
-            if score >= 5:
-                decision = "RESTART"
-            elif score >= 3:
-                decision = "ESCALATE"
+            #  FINAL DECISION LOGIC (FIXED)
+            if z_score >= 5 or confidence >= 0.8:
+                decision = "HIGH_TRAFFIC"
+            elif z_score >= 3:
+                decision = "MODERATE"
             else:
                 decision = "IGNORE"
 
             print("\n=== FINAL DECISION ===")
             print(parsed)
             print("Decision:", decision)
+
+            # CORRECT ALERT MAPPING
+            if decision == "HIGH_TRAFFIC":
+                call_healer("HighRequestRate")
+
+            elif decision == "MODERATE":
+                call_healer("HighRequestRate")
+
             print("=====================\n")
 
         except Exception as e:
             print("Agent error:", e)
 
         time.sleep(2)
-

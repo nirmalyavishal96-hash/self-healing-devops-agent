@@ -1,18 +1,22 @@
-
 import time
 import json
 import os
-import requests  
+import requests
 
 BASELINE_FILE = "/shared/baseline.json"
 TRIGGER_FILE = "/shared/anomaly_trigger.json"
 
-WARMUP_COUNT = 20
-MIN_VALID_RPS = 2
-MIN_SEED_RPS = 100
-MAX_LEARNING_DEVIATION_PERCENT = 0.25  #  RELATIVE FIX
+WARMUP_COUNT = 5
+MIN_VALID_RPS = 1
+MIN_SEED_RPS = 5
+MAX_LEARNING_DEVIATION_PERCENT = 0.5
 
-FREEZE_BASELINE = True
+#  FIX 1: Strong anomaly cooldown (prevents re-trigger spam)
+LAST_ANOMALY_TIME = 0
+ANOMALY_COOLDOWN = 60  # seconds
+
+LAST_VALUES = []
+LAST_METRIC = None
 
 
 def load_baseline():
@@ -26,11 +30,8 @@ def load_baseline():
 
 
 def save_baseline(baseline):
-    try:
-        with open(BASELINE_FILE, "w") as f:
-            json.dump(baseline, f)
-    except:
-        pass
+    with open(BASELINE_FILE, "w") as f:
+        json.dump(baseline, f)
 
 
 def update_baseline(baseline, value):
@@ -50,6 +51,8 @@ def get_std(baseline):
 
 def compute_confidence(value, mean, std):
     if std == 0:
+        if mean > 0 and value > mean * 2:
+            return 5, 0.8
         return 0, 0.0
 
     z = (value - mean) / std
@@ -66,8 +69,9 @@ def compute_confidence(value, mean, std):
 
 def fetch_metric():
     try:
+        query = "rate(app_requests_total[30s])"
         res = requests.get(
-            "http://prometheus:9090/api/v1/query?query=rate(app_requests_total[10s])"
+            f"http://prometheus:9090/api/v1/query?query={query}"
         )
         data = res.json()
 
@@ -96,103 +100,106 @@ if __name__ == "__main__":
 
             print(f"\nMetric value (RPS): {value:.2f}")
 
+            # Ignore unrealistic spikes
+            if value > 2000:
+                print("Ignoring unrealistic spike")
+                time.sleep(5)
+                continue
+
+            #  Ignore very low traffic
             if value < MIN_VALID_RPS:
-                print("Ignoring low traffic (not suitable for baseline)")
+                print("Ignoring low traffic")
+                time.sleep(5)
+                continue
+
+            #  FIX 2: stale metric handling (non-blocking)
+            if LAST_METRIC is not None and abs(value - LAST_METRIC) < 1:
+                print("Stale metric (allowed)")
+            LAST_METRIC = value
+
+            #  FIX 3: spike-after-idle protection
+            if LAST_METRIC is not None and LAST_METRIC < 5 and value > 500:
+                print("Ignoring spike after idle")
+                LAST_METRIC = value
                 time.sleep(5)
                 continue
 
             mean = baseline["mean"]
             std = get_std(baseline)
-            threshold = mean + max(2 * std, 30)
+            threshold = mean + (2 * std)
 
             print(f"Baseline mean: {mean:.2f}, std: {std:.2f}, threshold: {threshold:.2f}")
 
-            #  WARMUP PHASE
+            # -------- BASELINE LEARNING --------
             if baseline["count"] < WARMUP_COUNT:
 
-                # INITIAL SEED
                 if baseline["count"] == 0:
                     if value < MIN_SEED_RPS:
-                        print("Waiting for stable high traffic to start baseline...")
+                        print("Waiting for stable traffic...")
                         time.sleep(5)
                         continue
 
-                    print("Initial seed value (valid traffic)")
+                    print("Initial seed")
                     baseline = update_baseline(baseline, value)
                     save_baseline(baseline)
                     time.sleep(5)
                     continue
 
-                # INITIAL LEARNING
-                if baseline["count"] < 5:
-                    deviation = abs(value - mean) / mean if mean > 0 else 0
-
-                    if deviation > MAX_LEARNING_DEVIATION_PERCENT:
-                        print("Skipping unstable initial value")
-                    else:
-                        print("Stable initial learning")
-                        baseline = update_baseline(baseline, value)
-
-                    save_baseline(baseline)
-                    time.sleep(5)
-                    continue
-
-                # WARMUP LEARNING
                 deviation = abs(value - mean) / mean if mean > 0 else 0
 
                 if deviation > MAX_LEARNING_DEVIATION_PERCENT:
-                    print("Skipping spike during warmup (not learning)")
+                    print("Skipping unstable value (early stage)")
                     time.sleep(5)
                     continue
 
-                print("Warmup learning (stable traffic)")
+                print("Learning baseline")
                 baseline = update_baseline(baseline, value)
                 save_baseline(baseline)
                 time.sleep(5)
                 continue
 
-            # AFTER WARMUP
-            if std == 0:
-                print("Std is zero, continue learning...")
-                baseline = update_baseline(baseline, value)
-                save_baseline(baseline)
+            # -------- SPIKE DETECTION --------
+            LAST_VALUES.append(value)
+            if len(LAST_VALUES) > 3:
+                LAST_VALUES.pop(0)
+
+            consistent_spike = (
+                len(LAST_VALUES) == 3 and all(v > threshold for v in LAST_VALUES)
+            )
+
+            if not consistent_spike:
+                print("No consistent spike")
                 time.sleep(5)
                 continue
 
-            # ANOMALY DETECTION
-            is_anomaly = value > threshold
+            # FIX 4: HARD COOLDOWN (prevents repeated triggers)
+            current_time = time.time()
+            if current_time - LAST_ANOMALY_TIME < ANOMALY_COOLDOWN:
+                print("Skipping duplicate anomaly (cooldown)")
+                time.sleep(5)
+                continue
 
-            if is_anomaly:
-                z_score, confidence = compute_confidence(value, mean, std)
+            LAST_ANOMALY_TIME = current_time
 
-                if confidence < 0.5:
-                    print("Low confidence anomaly ignored")
-                else:
-                    print("Adaptive anomaly detected!")
-                    print(f"Z-score: {z_score:.2f}, Confidence: {confidence}")
+            # -------- FINAL ANOMALY --------
+            z_score, confidence = compute_confidence(value, mean, std)
 
-                    data = {
-                        "timestamp": int(time.time()),
-                        "metric": value,
-                        "mean": mean,
-                        "std": std,
-                        "z_score": z_score,
-                        "confidence": confidence
-                    }
+            print("Adaptive anomaly detected!")
 
-                    with open(TRIGGER_FILE, "w") as f:
-                        json.dump(data, f)
+            data = {
+                "timestamp": int(time.time()),
+                "metric": value,
+                "mean": mean,
+                "std": std,
+                "z_score": z_score,
+                "confidence": confidence
+            }
 
-            else:
-                if not FREEZE_BASELINE:
-                    baseline = update_baseline(baseline, value)
-                    save_baseline(baseline)
-                else:
-                    print("Baseline frozen (no learning)")
+            with open(TRIGGER_FILE, "w") as f:
+                json.dump(data, f)
 
             time.sleep(5)
 
         except Exception as e:
             print("Detector error:", e)
             time.sleep(5)
-

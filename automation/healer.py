@@ -4,18 +4,12 @@ import time
 
 app = Flask(__name__)
 
-# Track failures
 failure_count = {}
-
-# Track handled alerts
 handled_alerts = set()
-
-# Track last execution time (cooldown control)
 alert_last_handled = {}
-COOLDOWN_SECONDS = 30
 
-# NEW: restart delay (seconds)
-RESTART_DELAY = 20
+COOLDOWN_SECONDS = 30
+RESTART_DELAY = 10
 
 
 @app.route("/webhook", methods=["POST"])
@@ -34,37 +28,26 @@ def webhook():
 
         print(f"Alert received: {alert_key}, status: {status}")
 
-        # Handle resolved alerts
         if status == "resolved":
             handled_alerts.discard(alert_key)
             alert_last_handled.pop(alert_key, None)
-            print(f"Alert resolved and cleared: {alert_key}")
             continue
 
         current_time = time.time()
 
-        # LIVENESS FIX
-        if alert_name == "AppDown":
-            if not is_container_running("self_healing_app"):
-                print("App is DOWN → forcing recovery (bypass cooldown)")
-            else:
-                if alert_key in alert_last_handled:
-                    last_time = alert_last_handled[alert_key]
-                    if current_time - last_time < COOLDOWN_SECONDS:
-                        print("Skipping due to cooldown...")
-                        continue
+        if alert_key in alert_last_handled:
+            if current_time - alert_last_handled[alert_key] < COOLDOWN_SECONDS:
+                print("Skipping due to cooldown...")
+                continue
 
-        # Mark execution time
         alert_last_handled[alert_key] = current_time
 
-        # Dedup check
         if alert_key in handled_alerts:
             print("Already handled, skipping...")
             continue
 
         handled_alerts.add(alert_key)
 
-        # Decision logic
         if alert_name == "AppDown":
             handle_app_down()
 
@@ -82,34 +65,27 @@ def is_container_running(service):
 
 
 def handle_app_down():
-    print("Executing handle_app_down()")
+    print("Handling AppDown...")
 
     service = "self_healing_app"
 
-    failure_count[service] = failure_count.get(service, 0) + 1
-
-    print(f"{service} failure count: {failure_count[service]}")
-
-    if failure_count[service] <= 3:
-        if not is_container_running(service):
-
-            print(f"Waiting {RESTART_DELAY} seconds before restart...")
-            time.sleep(RESTART_DELAY)
-
-            print("Action: Restarting container...")
-            os.system(f"docker start {service}")
-
-        else:
-            print("Container already running, no action needed")
+    if not is_container_running(service):
+        print("Restarting stopped container...")
+        os.system(f"docker start {service}")
     else:
-        print("Escalation: Too many failures, stopping retries")
-        failure_count[service] = 0
+        print("App is running, no restart needed")
 
 
 def handle_high_traffic():
-    print("High traffic detected")
-    print("Action: Scale up (simulated)")
+    print("High traffic detected ")
+
+    service = "self_healing_app"
+
+    print("Action: Restarting to recover from overload...")
+    os.system(f"docker restart {service}")
+
 
 
 if __name__ == "__main__":
+    print("Starting healer service...")
     app.run(host="0.0.0.0", port=5001)

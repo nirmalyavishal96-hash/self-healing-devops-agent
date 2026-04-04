@@ -8,4 +8,6 @@ RUN pip install flask
 
 RUN pip install flask prometheus_client
 
+RUN pip install gunicorn
+
 CMD ["python", "app.py"]
