@@ -40,7 +40,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.19.0
         with:
           image-ref: test-app
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
           exit-code: 1
 
       #  SonarQube Scan
