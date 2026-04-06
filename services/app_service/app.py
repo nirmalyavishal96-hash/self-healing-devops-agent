@@ -10,8 +10,18 @@ app = Flask(__name__)
 # -------------------------------
 # LOG SETUP (PRODUCTION SAFE)
 # -------------------------------
-LOG_FILE = "/logs/app.log"
-os.makedirs("/logs", exist_ok=True)
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Go to project root
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "../../"))
+
+LOG_DIR = os.path.join(PROJECT_ROOT, "logging", "app_logs")
+
+os.makedirs(LOG_DIR, exist_ok=True)
+
+log_file = os.path.join(LOG_DIR, "app.log")
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
