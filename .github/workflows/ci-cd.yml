@@ -20,8 +20,10 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install -r requirements-dev.txt
-          pip install -r services/ml_service/requirements.txt || true
+           python -m pip install --upgrade pip
+           python -m pip install -r requirements-dev.txt
+           python -m pip install -r services/app_service/requirements.txt
+           python -m pip list
 
       - name: Run Tests
         run: |
