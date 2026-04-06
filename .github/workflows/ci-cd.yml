@@ -11,28 +11,33 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
       - name: Install Dependencies
         run: |
           pip install -r requirements-dev.txt
-          pip install -r services/app_service/requirements.txt
+          pip install -r services/ml_service/requirements.txt || true
 
       - name: Run Tests
         run: |
           pytest services/
 
       #  Trivy FS Scan
-      - name: Trivy Security Scan (Filesystem)
-        uses: aquasecurity/trivy-action@master
+      - name: Build Docker Image for Scan
+        run: |
+          docker build -t test-app ./services/app_service
+
+      - name: Run Trivy Scan on Image
+        uses: aquasecurity/trivy-action@0.20.0
         with:
-          scan-type: fs
+          image-ref: test-app
           severity: CRITICAL,HIGH
+          exit-code: 1
 
       #  SonarQube Scan
       - name: Sonar Scan
@@ -47,7 +52,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Login DockerHub
         uses: docker/login-action@v2
