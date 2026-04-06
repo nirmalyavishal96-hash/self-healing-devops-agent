@@ -1,0 +1,73 @@
+name: AIOps CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+
+  test-and-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install Dev Dependencies
+        run: |
+          pip install -r requirements-dev.txt
+
+      - name: Run Tests
+        run: |
+          pytest services/
+
+      #  Trivy FS Scan
+      - name: Trivy Security Scan (Filesystem)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          severity: CRITICAL,HIGH
+
+      #  SonarQube Scan
+      - name: Sonar Scan
+        uses: sonarsource/sonarqube-scan-action@v2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  docker-build-push:
+    needs: test-and-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Login DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Build & Push APP SERVICE
+      - name: Build App Service
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/app_service:latest ./services/app_service
+
+      - name: Push App Service
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/app_service:latest
+
+      #  Build & Push ML SERVICE
+      - name: Build ML Service
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/ml_service:latest ./services/ml_service
+
+      - name: Push ML Service
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/ml_service:latest

@@ -1,0 +1,8 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /mnt/d/PROJECTS/self-healing-devops-agent/logging/app_logs
+        containerPath: /aiops-logs

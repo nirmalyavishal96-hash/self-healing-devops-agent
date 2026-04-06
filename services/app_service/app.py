@@ -1,55 +1,120 @@
-from flask import Flask
+from flask import Flask, request, g
 import time
-from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
-import os
 import logging
+import json
+import os
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 
+# -------------------------------
+# LOG SETUP (PRODUCTION SAFE)
+# -------------------------------
 LOG_FILE = "/logs/app.log"
-os.makedirs('/logs', exist_ok=True)
+os.makedirs("/logs", exist_ok=True)
 
-def write_log(message):
-    with open(LOG_FILE, "a") as f:
-        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
-        f.flush()
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        log_record = {
+            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+            "level": record.levelname,
+            "service": "app_service",
+            "message": record.getMessage(),
+            "endpoint": getattr(record, "endpoint", None),
+            "latency": getattr(record, "latency", None)
+        }
+        return json.dumps(log_record)
 
-# Metrics
-REQUEST_COUNT = Counter('app_requests_total', 'Total number of requests')
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
+# IMPORTANT FIXES
+file_handler = logging.FileHandler(LOG_FILE, delay=False)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(JsonFormatter())
+
+logger.addHandler(file_handler)
+logger.propagate = False  # prevent duplicate logs
+
+# ALSO PRINT TO STDOUT (VERY IMPORTANT FOR K8s)
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(JsonFormatter())
+logger.addHandler(stream_handler)
+
+# -------------------------------
+# PROMETHEUS METRICS
+# -------------------------------
+REQUEST_COUNT = Counter(
+    'app_requests_total',
+    'Total number of requests',
+    ['method', 'endpoint', 'status']
+)
+
+REQUEST_LATENCY = Histogram(
+    'app_request_latency_seconds',
+    'Request latency',
+    ['endpoint']
+)
+
+# -------------------------------
+# REQUEST TRACKING
+# -------------------------------
+@app.before_request
+def start_timer():
+    g.start_time = time.time()
+
+@app.after_request
+def log_request(response):
+    latency = time.time() - g.start_time
+
+    REQUEST_COUNT.labels(
+        method=request.method,
+        endpoint=request.path,
+        status=response.status_code
+    ).inc()
+
+    REQUEST_LATENCY.labels(request.path).observe(latency)
+
+    logger.info(
+        f"{request.method} {request.path}",
+        extra={
+            "endpoint": request.path,
+            "latency": round(latency, 4)
+        }
+    )
+
+    return response
+
+# -------------------------------
+# ROUTES
+# -------------------------------
 @app.route("/")
 def home():
-    REQUEST_COUNT.inc()
-    write_log("INFO Home endpoint hit")
-    return "Self-Healing DevOps App Running"
+    return "AIOps App Running"
 
 @app.route("/load")
 def load():
-    REQUEST_COUNT.inc()
-    write_log("WARNING CPU spike simulation started")
-    for _ in range(10**7):
+    logger.warning("CPU spike simulation started")
+    for _ in range(10**6):
         pass
-    write_log("WARNING CPU spike simulation completed")
+    logger.warning("CPU spike simulation completed")
     return "CPU spike simulated!"
-
-logging.basicConfig(
-    filename='/logs/app.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
-)
 
 @app.route("/fail")
 def fail():
     try:
         x = 1 / 0
     except Exception as e:
-        logging.error(f"Application crash: {str(e)}", exc_info=True)
-        os._exit(1)  # FIXED
+        logger.error(f"Application crash: {str(e)}")
+        os._exit(1)
 
 @app.route("/metrics")
 def metrics():
     return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
+# -------------------------------
+# ENTRYPOINT
+# -------------------------------
 if __name__ == "__main__":
-    write_log("INFO Application started")
+    logger.info("Application started")
     app.run(host="0.0.0.0", port=5000)

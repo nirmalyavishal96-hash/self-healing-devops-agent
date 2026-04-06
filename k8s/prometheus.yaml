@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus
+          ports:
+            - containerPort: 9090
+
+          volumeMounts:
+            #  Prometheus config
+            - name: config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+
+            #  Alert rules (THIS WAS MISSING)
+            - name: rules
+              mountPath: /etc/prometheus/alert_rules.yml
+              subPath: alert_rules.yml
+
+      volumes:
+        # ConfigMap for prometheus.yml
+        - name: config
+          configMap:
+            name: prometheus-config
+
+        #  ConfigMap for alert rules
+        - name: rules
+          configMap:
+            name: alert-rules

@@ -67,3 +67,5 @@ htmlcov/
 
 tmp/
 temp/
+
+logging/app_logs/*.log

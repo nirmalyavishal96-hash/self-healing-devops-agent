@@ -3,7 +3,7 @@ groups:
     rules:
 
       - alert: HighRequestRate
-        expr: avg_over_time(rate(app_requests_total[1m])[3m:]) > 300
+        expr: rate(app_requests_total[30s]) > 5 and rate(app_requests_total[30s]) > 2
         for: 2m
         labels:
           severity: warning

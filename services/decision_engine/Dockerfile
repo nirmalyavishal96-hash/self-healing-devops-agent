@@ -2,13 +2,12 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
+# Copy application code
+COPY ai_agent.py .
 
-RUN mkdir -p /logs
-
-EXPOSE 5000
-
-CMD ["python", "app.py"]
+# Run the service
+CMD ["python", "ai_agent.py"]

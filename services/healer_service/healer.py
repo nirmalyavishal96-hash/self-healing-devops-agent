@@ -1,91 +1,71 @@
 from flask import Flask, request
-import os
+from kubernetes import client, config
 import time
 
 app = Flask(__name__)
 
-failure_count = {}
-handled_alerts = set()
-alert_last_handled = {}
+# Load Kubernetes config
+try:
+    config.load_incluster_config()
+except:
+    config.load_kube_config()
 
-COOLDOWN_SECONDS = 30
-RESTART_DELAY = 10
+v1 = client.CoreV1Api()
+
+# -------------------------------
+#  COOLDOWN CONFIG 
+# -------------------------------
+LAST_ACTION = 0
+COOLDOWN = 60  # seconds
+
+
+def can_heal():
+    global LAST_ACTION
+    current_time = time.time()
+
+    if current_time - LAST_ACTION < COOLDOWN:
+        print("Cooldown active, skipping healing...")
+        return False
+
+    LAST_ACTION = current_time
+    return True
+
+
+def restart_pod(label_selector):
+    pods = v1.list_namespaced_pod(
+        namespace="default",
+        label_selector=label_selector
+    )
+
+    for pod in pods.items:
+        print(f"Deleting pod: {pod.metadata.name}")
+        v1.delete_namespaced_pod(
+            name=pod.metadata.name,
+            namespace="default"
+        )
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    print("WEBHOOK HIT")
-
     data = request.json
 
     for alert in data.get("alerts", []):
-        labels = alert.get("labels", {})
-        alert_name = labels.get("alertname")
-        instance = labels.get("instance")
-        status = alert.get("status")
+        alert_name = alert["labels"].get("alertname")
 
-        alert_key = f"{alert_name}_{instance}"
+        print(f"Received alert: {alert_name}")
 
-        print(f"Alert received: {alert_key}, status: {status}")
-
-        if status == "resolved":
-            handled_alerts.discard(alert_key)
-            alert_last_handled.pop(alert_key, None)
-            continue
-
-        current_time = time.time()
-
-        if alert_key in alert_last_handled:
-            if current_time - alert_last_handled[alert_key] < COOLDOWN_SECONDS:
-                print("Skipping due to cooldown...")
-                continue
-
-        alert_last_handled[alert_key] = current_time
-
-        if alert_key in handled_alerts:
-            print("Already handled, skipping...")
-            continue
-
-        handled_alerts.add(alert_key)
+        #  APPLY COOLDOWN HERE
+        if not can_heal():
+            return "Cooldown active", 200
 
         if alert_name == "AppDown":
-            handle_app_down()
+            restart_pod("app=app-service")
 
         elif alert_name == "HighRequestRate":
-            handle_high_traffic()
+            restart_pod("app=app-service")
 
     return "OK", 200
 
 
-def is_container_running(service):
-    result = os.popen(
-        f"docker ps --filter name={service} --format '{{{{.Names}}}}'"
-    ).read()
-    return service in result
-
-
-def handle_app_down():
-    print("Handling AppDown...")
-
-    service = "self_healing_app"
-
-    if not is_container_running(service):
-        print("Restarting stopped container...")
-        os.system(f"docker start {service}")
-    else:
-        print("App is running, no restart needed")
-
-
-def handle_high_traffic():
-    print("High traffic detected ")
-
-    service = "self_healing_app"
-
-    print("Action: Restarting to recover from overload...")
-    os.system(f"docker restart {service}")
-
-
-
 if __name__ == "__main__":
-    print("Starting healer service...")
     app.run(host="0.0.0.0", port=5001)

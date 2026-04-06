@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-service
+  labels:
+    app: app-service
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-service
+
+  template:
+    metadata:
+      labels:
+        app: app-service
+
+    spec:
+      containers:
+        - name: app-service
+          image: app_service:latest
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 5000
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          volumeMounts:
+            - name: logs
+              mountPath: /logs
+
+      
+      volumes:
+        - name: logs
+          hostPath:
+            path: /aiops-logs
+            type: DirectoryOrCreate

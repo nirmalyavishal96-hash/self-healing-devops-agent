@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-rules
+data:
+  alert_rules.yml: |
+    groups:
+      - name: self_healing_alerts
+        rules:
+          - alert: HighRequestRate
+            expr: rate(app_requests_total[30s]) > 5
+            for: 30s
+            labels:
+              severity: warning
+            annotations:
+              summary: "High traffic detected (local tuned)"
+              description: "Request rate exceeded safe local threshold"  
+
+          - alert: AppDown
+            expr: up{job="app-service"} == 0
+            for: 30s
+            labels:
+              severity: critical

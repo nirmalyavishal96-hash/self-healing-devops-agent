@@ -1,198 +1,111 @@
 import time
 import requests
-import os
-import json
 
-OLLAMA_URL = "http://172.17.0.1:11434/api/generate"
-LOG_FILE = "/logs/app.log"
-TRIGGER_FILE = "/shared/anomaly_trigger.json"
+ML_URL = "http://ml-service:6000/predict"
+HEALER_URL = "http://healer-service:5001/webhook"
 
-last_trigger_timestamp = None
-last_processed_time = 0
-
-COOLDOWN = 30
+COOLDOWN = 120  # increased for stability
+last_action_time = 0
 
 
-def wait_for_ollama():
-    print("Waiting for Ollama...")
-    for _ in range(5):
-        try:
-            if requests.get("http://172.17.0.1:11434").status_code == 200:
-                print("Ollama ready")
-                return
-        except:
-            pass
-        time.sleep(2)
-    print("Continuing without strict Ollama dependency...")
+def can_act():
+    global last_action_time
+    now = time.time()
+
+    if now - last_action_time < COOLDOWN:
+        print("Cooldown active...", flush=True)
+        return False
+
+    last_action_time = now
+    return True
 
 
-def get_recent_logs(lines=20):
-    if not os.path.exists(LOG_FILE):
-        return ""
-    try:
-        with open(LOG_FILE, "r") as f:
-            return "".join(f.readlines()[-lines:])
-    except:
-        return ""
-
-
-def read_trigger_file():
-    try:
-        with open(TRIGGER_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return None
-
-
-def analyze_with_llm(prompt):
+def call_ml(metric_value):
     try:
         res = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": "phi3:mini",
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0.1}
-            },
-            timeout=30  # FIXED timeout
+            ML_URL,
+            json={"metric": metric_value},
+            timeout=5
         )
-        return res.json().get("response", "")
+        return res.json().get("result", "UNKNOWN")
     except Exception as e:
-        print("LLM error:", e)
-        return ""
+        print("ML call failed:", e, flush=True)
+        return "UNKNOWN"
 
 
-def safe_llm_call(prompt):
-    out = analyze_with_llm(prompt)
-
-    if "Root Cause:" in out:
-        return out
-
-    return """Root Cause: Traffic spike detected
-Fix: Scale or rate limit requests
-Severity: MEDIUM"""
-
-
-def clean_output(text):
-    result = {"Root Cause": "UNKNOWN", "Fix": "UNKNOWN", "Severity": "MEDIUM"}
-
-    for line in text.split("\n"):
-        if line.startswith("Root Cause"):
-            result["Root Cause"] = line.split(":", 1)[1].strip()
-        elif line.startswith("Fix"):
-            result["Fix"] = line.split(":", 1)[1].strip()
-        elif line.startswith("Severity"):
-            sev = line.split(":", 1)[1].strip().upper()
-            if "HIGH" in sev:
-                result["Severity"] = "HIGH"
-            elif "LOW" in sev:
-                result["Severity"] = "LOW"
-            else:
-                result["Severity"] = "MEDIUM"
-
-    return result
-
-
-def call_healer(action):
+def call_healer(alert_name):
     try:
         payload = {
             "alerts": [
                 {
                     "labels": {
-                        "alertname": action,
-                        "instance": "ai-agent"
+                        "alertname": alert_name
                     },
                     "status": "firing"
                 }
             ]
         }
 
-        requests.post("http://healer:5001/webhook", json=payload, timeout=10)
-        print(f"Sent action to healer: {action}")
+        requests.post(HEALER_URL, json=payload, timeout=10)
+        print(f"Sent to healer: {alert_name}", flush=True)
 
     except Exception as e:
-        print("Healer call failed:", e)
+        print("Healer call failed:", e, flush=True)
+
+
+def fetch_metric():
+    try:
+        res = requests.get(
+            "http://prometheus:9090/api/v1/query",
+            params={
+                "query": "rate(app_requests_total[1m])"
+            },
+            timeout=5
+        )
+
+        data = res.json()
+        results = data.get("data", {}).get("result", [])
+
+        if not results:
+            print("No metrics yet...", flush=True)
+            return None
+
+        value = float(results[0]["value"][1])
+        return value
+
+    except Exception as e:
+        print("Prometheus fetch error:", e, flush=True)
+        return None
 
 
 if __name__ == "__main__":
-    print("AI Agent started")
-    wait_for_ollama()
+    print("AI Decision Engine started...", flush=True)
 
     while True:
         try:
-            if not os.path.exists(TRIGGER_FILE):
-                time.sleep(2)
+            metric_value = fetch_metric()
+
+            # IGNORE INVALID DATA
+            if metric_value is None or metric_value < 0.1:
+                print("Skipping invalid/low metric...", flush=True)
+                time.sleep(5)
                 continue
 
-            data = read_trigger_file()
-            if not data:
-                time.sleep(2)
-                continue
+            print(f"Metric value: {metric_value}", flush=True)
 
-            trigger_ts = data.get("timestamp", 0)
+            ml_result = call_ml(metric_value)
+            print(f"ML Result: {ml_result}", flush=True)
 
-            if last_trigger_timestamp == trigger_ts:
-                time.sleep(1)
-                continue
+            if ml_result == "ANOMALY":
+                if can_act():
+                    call_healer("HighRequestRate")
+                else:
+                    print("Skipped due to cooldown", flush=True)
 
-            current_time = time.time()
-
-            if current_time - last_processed_time < COOLDOWN:
-                print("Cooldown active...")
-                time.sleep(2)
-                continue
-
-            print("\nNEW TRIGGER DETECTED")
-
-            last_trigger_timestamp = trigger_ts
-            last_processed_time = current_time
-
-            confidence = data.get("confidence", 0)
-            z_score = data.get("z_score", 0)
-
-            logs = get_recent_logs()
-
-            prompt = f"""
-Metric anomaly detected.
-Confidence: {confidence}
-Z-score: {z_score}
-
-Logs:
-{logs}
-
-FORMAT:
-Root Cause:
-Fix:
-Severity:
-"""
-
-            raw = safe_llm_call(prompt)
-            parsed = clean_output(raw)
-
-            print(f"DEBUG → Confidence={confidence}, Z-score={z_score}")
-
-            #  FINAL DECISION LOGIC (FIXED)
-            if z_score >= 5 or confidence >= 0.8:
-                decision = "HIGH_TRAFFIC"
-            elif z_score >= 3:
-                decision = "MODERATE"
             else:
-                decision = "IGNORE"
-
-            print("\n=== FINAL DECISION ===")
-            print(parsed)
-            print("Decision:", decision)
-
-            # CORRECT ALERT MAPPING
-            if decision == "HIGH_TRAFFIC":
-                call_healer("HighRequestRate")
-
-            elif decision == "MODERATE":
-                call_healer("HighRequestRate")
-
-            print("=====================\n")
+                print("System normal", flush=True)
 
         except Exception as e:
-            print("Agent error:", e)
+            print("Error:", e, flush=True)
 
-        time.sleep(2)
+        time.sleep(5)
