@@ -39,7 +39,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # IMPORTANT FIXES
-file_handler = logging.FileHandler(LOG_FILE, delay=False)
+file_handler = logging.FileHandler(log_file, delay=False)
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(JsonFormatter())
 
