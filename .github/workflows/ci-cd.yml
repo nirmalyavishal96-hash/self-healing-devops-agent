@@ -33,7 +33,7 @@ jobs:
           docker build -t test-app ./services/app_service
 
       - name: Run Trivy Scan on Image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.19.0
         with:
           image-ref: test-app
           severity: CRITICAL,HIGH
