@@ -6,3 +6,4 @@ nodes:
     extraMounts:
       - hostPath: /mnt/d/PROJECTS/self-healing-devops-agent/logging/app_logs
         containerPath: /aiops-logs
+        memory: "2Gi"
