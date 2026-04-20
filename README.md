@@ -180,27 +180,6 @@ ab -n 8000 -c 200 http://localhost:5000/
 
 ---
 
-## 📁 Project Structure
-
-```
-self-healing-devops-agent/
-│
-├── app/                # Flask application
-├── automation/         # AI + ML logic
-│   ├── anomaly_detector.py
-│   ├── ai_agent.py
-│   ├── healer.py
-│   ├── log_analyzer.py
-│
-├── monitoring/         # Prometheus configs
-├── alerting/           # Alertmanager config
-├── shared/             # Baseline & trigger files
-├── logs/               # Application logs
-├── screenshots/        # README images
-├── docker-compose.yml
-```
-
----
 
 ## 🏁 Final Outcome
 
